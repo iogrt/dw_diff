@@ -34,13 +34,13 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
       v_screen_key t_tel_screen.screen_key%TYPE;
    BEGIN
       BEGIN
-         -- obtï¿½m o id da dimensï¿½o T_TEL_DATE referente ao dia em que o erro foi detectado
+         -- obtém o id da dimensão T_TEL_DATE referente ao dia em que o erro foi detectado
          SELECT date_key
          INTO v_date_key
          FROM t_tel_date
          WHERE date_full=TO_CHAR(p_hora_deteccao,'DD/MM/YYYY');
          
-         -- obtï¿½m o id da dimensï¿½o T_TEL_TIME referente ao segundo em que o erro foi detectado
+         -- obtém o id da dimensão T_TEL_TIME referente ao segundo em que o erro foi detectado
          SELECT time_key
          INTO v_time_key
          FROM t_tel_time
@@ -78,7 +78,7 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
       v_last_iteration_key t_tel_iteration.iteration_key%TYPE;
       v_new_iteration_key t_tel_iteration.iteration_key%TYPE;
       
-      -- Descobre, usando a tabela T_TEL_SCHEDULE, quais os screens escalonados para a iteraï¿½ï¿½o cujo cï¿½digo passou por parï¿½metro
+      -- Descobre, usando a tabela T_TEL_SCHEDULE, quais os screens escalonados para a iteração cujo código passou por parâmetro
       CURSOR c_scheduled_screens(p_iteration_key t_tel_iteration.iteration_key%TYPE) IS
          SELECT s.screen_key as screen_key, screen_name, screen_order, s.source_key
          FROM t_tel_schedule s, t_tel_screen
@@ -119,7 +119,7 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
 
    -- *************************************************************************************
    -- * GOAL: Detect incorrect data in the size of products                               *
-   -- * QUALITY CRITERIUM: "Correï¿½ï¿½o"                                                     *
+   -- * QUALITY CRITERIUM: "Correção"                                                     *
    -- * PARAMETERS:                                                                       *
    -- *     p_iteration_key: key of the iteration in which the screen will be run         *
    -- *     p_source_key: key of the source system related to the screen's execution      *
@@ -193,7 +193,7 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
    
       -- *************************************************************************************
    -- * GOAL: detect incorrect data in products                                        *
-   -- * QUALITY CRITERIUM: "Correï¿½ï¿½o"                                                 *
+   -- * QUALITY CRITERIUM: "Correção"                                                 *
    -- * PARAMETERS:                                                                       *
    -- *     p_iteration_key: key of the iteration in which the screen will be run         *
    -- *     p_source_key: key of the source system related to the screen's execution      *
@@ -306,29 +306,6 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
          pck_log.write_uncomplete_task_msg;
          RAISE e_transformation;
    END;
-   -- TRANSFORM CELCIUS
-     PROCEDURE transform_celsius IS
-   BEGIN
-      pck_log.write_log('  Transforming data ["TRANSFORM_SALES"]');
-
-      INSERT INTO t_clean_celsius(forecast_date,temperature_status)
-      SELECT forecast_date, CASE
-                                WHEN forecast_value<4 THEN 'COLD'
-                                WHEN forecast_value<10 Then 'FRESH'
-                                WHEN forecast_value<25 THEN 'NICE'
-                                ELSE 'HOT'
-                                END AS forecast_status
-      FROM  (SELECT TO_CHAR(SYSTDATE,'dd/mm/yyyy') AS forecast_date, AVG(t_max+t_min)/2) AS forecast_value FROM t_data_celsius;
-
-      pck_log.write_log('    Done!');
-   EXCEPTION
-      WHEN NO_DATA_FOUND THEN
-         pck_log.write_log('    Found no lines to transform','    Done!');
-      WHEN OTHERS THEN
-         pck_log.write_uncomplete_task_msg;
-         RAISE e_transformation;
-   END;
-
 
 
    -- *************************************************************
@@ -428,7 +405,7 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
       END;
 
       -- RUNS ALL THE SCHEDULED SCREENS
-	  -- versï¿½o estï¿½tica 
+	  -- versão estática 
     /*  FOR rec IN scheduled_screens_cursor(v_iteration_key) LOOP
          IF UPPER(rec.screen_name)='SCREEN_PRODUCT_DIMENSIONS' THEN
             screen_dimensions(v_iteration_key, rec.source_key, rec.screen_order);
@@ -436,7 +413,7 @@ CREATE OR REPLACE PACKAGE BODY pck_transform IS
             screen_null_liq_weight(v_iteration_key, rec.source_key, rec.screen_order);
          END IF;*/
 
-         -- EXECUï¿½ï¿½O DINï¿½MICA DE SCREENS
+         -- EXECUÇÃO DINÂMICA DE SCREENS
         FOR rec IN scheduled_screens_cursor(v_iteration_key) LOOP
             v_sql:='BEGIN pck_transform.'||rec.screen_name||'('||v_iteration_key||','||rec.source_key||','||rec.screen_order||'); END;';
             pck_log.write_log(v_sql);
