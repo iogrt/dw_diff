@@ -1,0 +1,12 @@
+BEGIN
+   -- 1ª vez
+   pck_extract.main(p_initialize=>TRUE);
+   pck_transform.main(p_duplicate_last_iteration=>true);
+   pck_load.main(p_load_dates=>true,p_init_dimensions=>true);
+
+   -- 2ª vez
+   --pck_extract.main(p_initialize=>false);
+   --pck_transform.main(p_duplicate_last_iteration=>true);
+   --pck_load.main(p_load_dates=>false,p_init_dimensions=>false);
+END;
+/

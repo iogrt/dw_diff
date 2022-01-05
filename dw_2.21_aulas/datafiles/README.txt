@@ -1,0 +1,1 @@
+Ao gerar o ficheiro .csv usando o Excel, o separador pode ser a "," em vez do esperado ";". Aconteceu-me com a versão 2019 do Excel, usei depois o notepad para substituir.

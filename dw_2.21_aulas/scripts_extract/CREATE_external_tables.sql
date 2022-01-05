@@ -45,13 +45,13 @@ REJECT LIMIT UNLIMITED;
 
 
 CREATE TABLE t_ext_managers(
-	REFERENCE	   CHAR(6),
-	MANAGER_NAME 	   VARCHAR2(100),
-	MANAGER_SINCE	   DATE
+	store_refer	CHAR(6),
+	name		VARCHAR2(100),
+	hiring_date	DATE
 )
 ORGANIZATION EXTERNAL
 (
-	TYPE oracle_loader
+	TYPE oracle_loader	
 	DEFAULT DIRECTORY src_files
 	ACCESS PARAMETERS
 	(
@@ -62,14 +62,15 @@ ORGANIZATION EXTERNAL
 		SKIP 7
 		FIELDS TERMINATED BY ";" OPTIONALLY ENCLOSED BY '"' MISSING FIELD VALUES ARE NULL
 		(
-			REFERENCE		CHAR(30),
-			phone_nrs	    CHAR(50),
-			MANAGER_NAME	CHAR(50),
-			nif		        CHAR(200),
-			MANAGER_SINCE	DATE 'yyyy-mm-dd',
-			primeiro_diretor CHAR(20)
+			store_refer	CHAR(6),
+			phone_nrs	CHAR(50),
+			name		CHAR(50),
+			tax_payer_nr	CHAR(100),
+			hiring_date	DATE 'yyyy-mm-dd',
+			is_first	CHAR(8)
 		)
 	)
 	LOCATION ('managers.csv')
 )
 REJECT LIMIT UNLIMITED;
+

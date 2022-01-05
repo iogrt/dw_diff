@@ -1,7 +1,10 @@
 CREATE OR REPLACE PACKAGE pck_extract IS
-   PROCEDURE main (p_initialize BOOLEAN);
+    PROCEDURE reset;
+    PROCEDURE main (p_initialize BOOLEAN);
 END pck_extract;
 /
+
+
 create or replace PACKAGE BODY pck_extract IS
 
    e_extraction EXCEPTION;
@@ -25,7 +28,7 @@ create or replace PACKAGE BODY pck_extract IS
             pck_log.write_uncomplete_task_msg;
             RAISE e_extraction;
     END;
-
+   
    -- **********************************************
    -- * INTITALIZES THE t_info_extractions TABLE   *
    -- **********************************************
@@ -43,7 +46,7 @@ create or replace PACKAGE BODY pck_extract IS
             DELETE FROM t_data_stores_new;
             DELETE FROM t_data_stores_old;
 			DELETE FROM t_data_managers_new;
-            DELETE FROM t_data_managers_old;
+            DELETE FROM t_data_managers_old;            
             DELETE FROM t_data_celsius;
             pck_log.write_log('      Done!');
          END IF;
@@ -78,72 +81,60 @@ create or replace PACKAGE BODY pck_extract IS
    -- *   p_attributes_dest: list of attributes to fill                  *
    -- *   p_dsa_table: name of the t_data_* table to fill                *
    -- ********************************************************************
-  PROCEDURE table_extract (p_source_table VARCHAR2, p_attributes_src VARCHAR2, p_attributes_dest VARCHAR2, p_DSA_table VARCHAR2) IS
+   PROCEDURE table_extract (p_source_table VARCHAR2, p_attributes_src VARCHAR2, p_attributes_dest VARCHAR2, p_DSA_table VARCHAR2) IS
       v_end_date TIMESTAMP;
       v_start_date t_info_extractions.LAST_TIMESTAMP%TYPE;
       v_sql  VARCHAR2(1000);
    BEGIN 
       pck_log.write_log('  Extracting data ["TABLE_EXTRACT ('||UPPER(p_source_table)||')"]');
-	  pck_log.rowcount(p_DSA_table,'Before');    -- Logs how many rows the destination table initially contains
-
-        -- STEP 1: CLEAN DESTINATION TABLE
-      -- SOMETHING IS MISSING
-      v_sql:='DELETE FROM ' || p_DSA_table;
-      pck_log.write_log('    STEP 1: '||v_sql);
+      pck_log.rowcount(p_DSA_table,'Before');    -- Logs ho'w many rows the destination table initially contains
+      -- 1ª OPERAÇÃO: LIMPAR A TABELA DESTINO
+      v_sql:='DELETE FROM '||p_DSA_table;
+      pck_log.write_log('    1ª OPERAÇÃO: '||v_sql);
       EXECUTE IMMEDIATE v_sql;
 
-         --  STEP 2: find the date of change of the last record extracted in the previous extraction 
-         v_sql:='SELECT last_timestamp FROM t_info_extractions WHERE UPPER(source_table_name)='''||UPPER(p_source_table)||'''';
-         pck_log.write_log('    STEP 2: '||v_sql);
-         EXECUTE IMMEDIATE v_sql INTO v_start_date;
+        -- 2ª OPERAÇÃO: obter a data do último registo extraído da tabela fonte
+        v_sql:='SELECT last_timestamp FROM t_info_extractions WHERE UPPER(source_table_name)='''||UPPER(p_source_table)||'''';
+        pck_log.write_log('    2ª OPERAÇÃO: '||v_sql);
+        EXECUTE IMMEDIATE v_sql INTO v_start_date;
 
-         --    ---------------------
-         --   |   FISRT EXTRACTION  |
-         --    ---------------------
-        IF v_start_date IS NULL THEN
-
-            -- STEP 3: FIND THE DATE OF CHANGE OF THE MOST RECENTLY CHANGED RECORD IN THE SOURCE TABLE
-            -- SOMETHING IS MISSING
-			   v_sql:='Select max(src_last_changed) FROM '||  p_source_table;
-            pck_log.write_log('    STEP 3: '||v_sql);
+        --    ---------------------
+        --   |  PRIMEIRA EXTRACÇÃO |
+        --    ---------------------
+         IF v_start_date IS NULL THEN
+            -- 3ª OPERAÇÃO: descobrir qual a data do registo mais recente na tabela fonte
+            v_sql:='SELECT MAX(src_last_changed) FROM '||p_source_table;
+            pck_log.write_log('    3ª OPERAÇÃO: '||v_sql);
             EXECUTE IMMEDIATE v_sql INTO v_end_date;
 
-
-            -- STEP 4: EXTRACT ALL RELEVANT RECORDS FROM THE SOURCE TABLE TO THE DSA
-            -- SOMETHING IS MISSING
-    v_sql:='INSERT INTO ' || p_DSA_table || ' (' || p_attributes_dest || ') SELECT ' || p_attributes_src || ' FROM ' || p_source_table || ' WHERE SRC_LAST_CHANGED <= :1 OR SRC_LAST_CHANGED IS NULL';
-            pck_log.write_log('    STEP 4: '||v_sql);
+            -- 4ª OPERAÇÃO: extrair TODOS os registos da tabela fonte para a tabela correspondente na DSA
+            v_sql:='INSERT INTO '||p_DSA_table||'('|| p_attributes_dest||',rejected_by_screen) SELECT '||p_attributes_src||',''0'' FROM '||p_source_table|| ' WHERE src_last_changed<=:1 OR src_last_changed IS NULL';
+            pck_log.write_log('    4ª OPERAÇÃO: '||v_sql);
             EXECUTE IMMEDIATE v_sql USING v_end_date;
 
-            -- STEP 5: UPDATE THE t_info_extractions TABLE
-            -- SOMETHING IS MISSING
-			 v_sql:='UPDATE t_info_extractions SET LAST_TIMESTAMP = :1 WHERE UPPER(source_table_name)='''||UPPER(p_source_table)||'''';
-          pck_log.write_log('    STEP 5: '||v_sql);
-            EXECUTE IMMEDIATE v_sql USING NVL(v_end_date, TO_DATE('1950-01-01', 'yyyy-mm-dd'));
+            -- 5ª OPERAÇÃO: actualizar a tabela «t_info_extractions»
+            v_sql:='UPDATE t_info_extractions SET last_timestamp=:1 WHERE UPPER(source_table_name)=UPPER('''||p_source_table||''')';
+            pck_log.write_log('    5ª OPERAÇÃO: '||v_sql);
+            EXECUTE IMMEDIATE v_sql USING NVL(v_end_date,TO_DATE('1950-01-01','yyyy-mm-dd'));
          ELSE
-         --    -------------------------------------
-         --   |  OTHER EXTRACTIONS AFTER THE FIRST  |
-         --    -------------------------------------
-            -- STEP 3: FIND THE DATE OF CHANGE OF THE MOST RECENTLY CHANGED RECORD IN THE SOURCE TABLE
-            -- SOMETHING IS MISSING
-            
-            v_sql:='SELECT MAX(SRC_LAST_CHANGED) FROM ' || p_source_table || ' WHERE SRC_LAST_CHANGED > :1';
-            pck_log.write_log('    STEP 3: '||v_sql);
+         --    --------------------------------
+         --   |  SEGUNDA EXTRACÇÃO E SEGUINTES |
+         --    --------------------------------
+            -- 3ª OPERAÇÃO: descobrir qual a data do registo mais recente na tabela fonte
+            v_sql:='SELECT MAX(src_last_changed) FROM '||p_source_table||' WHERE src_last_changed >:1';
+            pck_log.write_log('    3ª OPERAÇÃO: '||v_sql);
             EXECUTE IMMEDIATE v_sql INTO v_end_date USING v_start_date;
 
             IF v_end_date>v_start_date THEN
-               -- STEP 4: EXTRACT ALL RELEVANT RECORDS FROM THE SOURCE TABLE TO THE DSA
-               -- SOMETHING IS MISSING
-               v_sql:='INSERT INTO ' || p_DSA_table || ' (' || p_attributes_dest || ') SELECT ' || p_attributes_src || ' FROM ' || p_source_table || ' WHERE SRC_LAST_CHANGED > :1 AND SRC_LAST_CHANGED <= :2';
-               pck_log.write_log('    STEP 4: '||v_sql);
+               -- 4ª OPERAÇÃO: obter registos ainda não extraídos anteriormente da tabela fonte
+               v_sql:='INSERT INTO '||p_DSA_table||'('|| p_attributes_dest||') SELECT '||p_attributes_src||' FROM '||p_source_table|| ' WHERE src_last_changed>:1 AND src_last_changed<=:2';
+               pck_log.write_log('    4ª OPERAÇÃO: '||v_sql);
                EXECUTE IMMEDIATE v_sql USING v_start_date, v_end_date;
 
-               -- STEP 5: UPDATE THE t_info_extractions TABLE
-               -- SOMETHING IS MISSING
-               v_sql:='UPDATE t_info_extractions SET LAST_TIMESTAMP = :1 WHERE UPPER(source_table_name)='''||UPPER(p_source_table)||'''';
-               pck_log.write_log('    STEP 5: '||v_sql);
+               -- 5ª OPERAÇÃO: actualizar a tabela «t_info_extractions»
+               v_sql:='UPDATE t_info_extractions SET last_timestamp=:1 WHERE UPPER(source_table_name)=UPPER('''||p_source_table||''')';
+               pck_log.write_log('    5ª OPERAÇÃO: '||v_sql);
                EXECUTE IMMEDIATE v_sql USING v_end_date;
-
             END IF;
          END IF;
 
@@ -155,11 +146,10 @@ create or replace PACKAGE BODY pck_extract IS
          RAISE e_extraction;
    END;
 
-
    -- **************************************************************
    -- *                       FILE_EXTRACT                         *
    -- *                                                            *
-   -- * EXTRACT ROWS FROM SOURCE FILE                              *
+   -- * EXTRACTS ROWS FROM SOURCE FILE                             *
    -- * IN                                                         *
    -- *    p_external_table: the external table to use             *
    -- *    p_attributes_src: list of attributes to extract         *
@@ -172,34 +162,18 @@ create or replace PACKAGE BODY pck_extract IS
    BEGIN
       pck_log.write_log('  Extracting data ["FILE_EXTRACT ('||UPPER(p_external_table)||')"]');      
 	  pck_log.rowcount(p_dsa_table_new,'Before');    -- Logs how many rows the destination table initially contains
+      -- OPERAÇÃO 1. DELETE ALL DATA FROM THE _old TABLE
+      EXECUTE IMMEDIATE 'DELETE FROM '||p_dsa_table_old;
 
-      -- STEP 1: CLEAN _old TABLE
-      v_sql:='DELETE FROM '||p_dsa_table_old;
-      pck_log.write_log('    STEP 1: '||v_sql);
+      -- OPERAÇÃO 2. OCCUPIES _old TABLE WITH THE OLD EXTRACTED DATA (CURRENTLY IN _new  TABLE)
+      v_sql:='INSERT INTO '||p_dsa_table_old||'('||p_attributes_dest||') SELECT '||p_attributes_dest||' FROM '||p_dsa_table_new;
       EXECUTE IMMEDIATE v_sql;
 
-      -- STEP 2: SOMETHING IS MISSING. THINK!
-      
-      v_sql:= 'INSERT INTO ' || p_dsa_table_old || '('|| p_attributes_dest || ') SELECT '|| p_attributes_dest || ' FROM ' || p_dsa_table_new;
-      pck_log.write_log('    STEP 2: '||v_sql);
-     EXECUTE IMMEDIATE v_sql;
-      
-      
-      -- STEP 3: SOMETHING IS MISSING. THINK HARDER!
-      -- ...
-      
-       v_sql:='DELETE FROM '||p_dsa_table_new;
-      pck_log.write_log('    STEP 3: '||v_sql);
-      EXECUTE IMMEDIATE v_sql;
-      
-     
+      -- OPERAÇÃO 3. DELETES ALL DATA FROM THE _new TABLE SO THAT NEW ARRIVING DATA CAN BE STORED
+      EXECUTE IMMEDIATE 'DELETE FROM '||p_dsa_table_new;
 
-      -- STEP 4: SOMETHING IS MISSING. THINK EVEN HARDER!
-      -- ...
-       v_sql:='INSERT INTO ' || p_dsa_table_new || ' (' || p_attributes_dest || ') SELECT ' || p_attributes_src || ' FROM ' || p_external_table;
-      pck_log.write_log('    STEP 4: '||v_sql);
-      EXECUTE IMMEDIATE v_sql;
-
+      -- OPERAÇÃO 4. FETCHES DATA FROM FILE
+      EXECUTE IMMEDIATE 'INSERT INTO '||p_dsa_table_new||'('||p_attributes_dest||') SELECT '||p_attributes_src||' FROM '||p_external_table;
 
       -- records the operation's SUCCESSFUL ending
 	  pck_log.write_log('    Done!');
@@ -209,7 +183,6 @@ create or replace PACKAGE BODY pck_extract IS
          pck_log.write_uncomplete_task_msg;
          RAISE e_extraction;
    END;
-
 
 
    -- ********************************************************************
@@ -262,21 +235,21 @@ create or replace PACKAGE BODY pck_extract IS
          l_pos_inicial:= instr(l_data, '[');
          l_pos_final:= instr(l_data, ']', l_pos_inicial);
          l_pos_atual_json := l_pos_inicial;
-         /* ENQUANTO â€œ]â€ nÃ£o atingido FAZ */
+         /* ENQUANTO “]” não atingido FAZ */
          LOOP 
             -- reinicia a lista de valores a inserir
             l_valores:='';
             l_pos_atual_json:=instr(l_data,'{',l_pos_atual_json);
-            -- termina quando nÃ£o houver mais registos json para ler
+            -- termina quando não houver mais registos json para ler
             EXIT WHEN l_pos_atual_json=0;
 
             l_pos_final_registo:=instr(l_data,'}',l_pos_atual_json);
-            -- lÃª o registo atual dos dados JSON
+            -- lê o registo atual dos dados JSON
             l_registo:=substr(l_data,l_pos_atual_json,l_pos_final_registo-l_pos_atual_json);
-            -- lÃª atributos solicitados, atualmente sÃ³ 1 permitido
+            -- lê atributos solicitados, atualmente só 1 permitido
             l_pos_atual_parse_src:=1;
             l_aux:=0;
-            LOOP  -- faz o parse dos atributos origem, 1 a um; por cada um lÃª-o registo JSON
+            LOOP  -- faz o parse dos atributos origem, 1 a um; por cada um lê-o registo JSON
                l_pos_virgula:=INSTR(l_string_to_parse,',',l_pos_atual_parse_src);
                EXIT WHEN l_pos_virgula=0;
                IF (l_aux>0) THEN
@@ -332,33 +305,27 @@ create or replace PACKAGE BODY pck_extract IS
       pck_log.clean;
       pck_log.write_log('*****  EXTRACT  EXTRACT  EXTRACT  EXTRACT  EXTRACT  EXTRACT  EXTRACT  *****');      -- DUPLICATES THE LAST ITERATION AND THE CORRESPONDING SCREEN SCHEDULE
 
-      -- INITIALIZE THE EXTRACTION TABLE t_info_extractions
-      IF p_initialize = TRUE THEN
-         initialize_extractions_table(TRUE);
+      -- INITIALIZES THE EXTRACTION TABLE 't_info_extractions'
+      IF p_initialize=TRUE THEN
+          initialize_extractions_table(TRUE);
       END IF;
-
       -- EXTRACT FROM SOURCE TABLES
-
-      -- SOMETHING IS MISSING: maybe... a table extraction
-	  
-    --uncomented
+      table_extract('view_clientes@dblink_sadsb', 'src_id,src_card_number,src_name,src_address,src_location,src_district,src_zip_code,src_phone_nr,src_gender,src_age,src_marital_status','id,card_number,name,address,location,district,zip_code,phone_nr,gender,age,marital_status', 't_data_customers');	  
       table_extract('view_produtos@dblink_sadsb', 'src_id,src_name,src_brand,src_width,src_height,src_depth,src_pack_type,src_calories_100g,src_liq_weight,src_category_id','id,name,brand,width,height,depth,pack_type,calories_100g,liq_weight,category_id', 't_data_products');
       table_extract('view_promocoes@dblink_sadsb', 'src_id,src_name,src_start_date,src_end_date,src_reduction,src_on_outdoor,src_on_tv','id,name,start_date,end_date,reduction,on_outdoor,on_tv', 't_data_promotions');	  
       table_extract('view_linhasvenda_promocoes@dblink_sadsb', 'src_line_id,src_promo_id','line_id,promo_id', 't_data_linesofsalepromotions');	  
       table_extract('view_linhasvenda@dblink_sadsb', 'src_id,src_sale_id,src_product_id,src_quantity,src_ammount_paid,src_line_date', 'id,sale_id,product_id,quantity,ammount_paid,line_date', 't_data_linesofsale');
-      table_extract_non_incremental('view_categorias@dblink_sadsb','t_data_categories', 'src_id,src_name', 'id,name');
-
-      table_extract('view_vendas@dblink_sadsb', 'src_id,src_sale_date,src_store_id,src_customer_id', 'id,sale_date,store_id,customer_id', 't_data_sales');
-      table_extract('view_clientes@dblink_sadsb', 'src_id,src_card_number,src_name,src_address,src_location,src_district,src_zip_code,src_phone_nr,src_gender,src_age,src_marital_status', 'id,card_number,name,address,location,district,zip_code,phone_nr,gender,age,marital_status', 't_data_customers');
-
-      -- SOMETHING IS MISSING: maybe... a file extraction
-      file_extract ('t_ext_stores', 'name,refer,building,address,zip_code,city,district,phone_nrs,fax_nr,closure_date','name,reference,building,address,zip_code,location,district,telephones,fax,closure_date','t_data_stores_new', 't_data_stores_old');
-	  --null;
-      file_extract('t_ext_managers','reference,manager_name,manager_since','reference,manager_name,manager_since','t_data_managers_new','t_data_managers_old');
+      table_extract('view_vendas@dblink_sadsb', 'src_id,src_sale_date,src_store_id,src_customer_id','id,sale_date,store_id,customer_id', 't_data_sales');
+      table_extract_non_incremental('view_categorias@dblink_sadsb', 't_data_categories', 'src_id,src_name', 'id,name');
+      -- EXTRACT FROM SOURCE FILES
+      file_extract ('t_ext_stores', 'name,refer,building,address,zip_code,city,district,phone_nrs,fax_nr,closure_date',
+                     'name,reference,building,address,zip_code,location,district,telephones,fax,closure_date','t_data_stores_new', 't_data_stores_old');
+      file_extract ('t_ext_managers', 'store_refer,name,hiring_date',
+                    'reference,manager_name,manager_since','t_data_managers_new', 't_data_managers_old');
 
       -- now, get the IPMA data from the web
-      web_extract('http://api.ipma.pt/open-data/forecast/meteorology/cities/daily/hp-daily-forecast-day0.json','t_data_celsius','globalIdLocal,tMax,tMin','id_local,t_max,t_min');
-    
+      web_extract('http://api.ipma.pt/open-data/forecast/meteorology/cities/daily/hp-daily-forecast-day0.json','t_data_celsius','globalIdLocal,tMax,tMin','id_local,t_max,t_min'); 
+
       COMMIT;
       pck_log.write_log('  All extracted data commited to database.');
    EXCEPTION

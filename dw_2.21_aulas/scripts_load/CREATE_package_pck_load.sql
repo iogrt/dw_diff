@@ -52,10 +52,19 @@ CREATE OR REPLACE package body pck_load is
    BEGIN
       pck_log.write_log('  Loading data ["LOAD_DIM_PROMOTIONS"]');
 	  pck_log.rowcount('t_dim_promotion','Before');
-
-      -- FOR EACH NEW OR UPDATED SOURCE PROMOTION, APPLY SCD CHANGES
-      -- SOMETHING IS MISSING... I CAN DO THIS, I CAN DO THIS, I CAN DO THIS...
-      null;
+      -- FOR EACH NEW OR UPDATED SOURCE PROMOTION
+      MERGE INTO t_dim_promotion dim
+      USING (SELECT id,name,start_date,end_date,reduction,on_street,on_tv
+             FROM t_clean_promotions) clean
+      ON (dim.promo_natural_key = clean.id)
+      WHEN MATCHED THEN UPDATE SET dim.promo_name=clean.name,
+                                   dim.promo_red_price=clean.reduction,
+                                   dim.promo_advertise=clean.on_tv,
+                                   dim.promo_board=clean.on_street,
+                                   dim.promo_start_date=clean.start_date,
+                                   dim.promo_end_date=clean.end_date
+      WHEN NOT MATCHED THEN INSERT (dim.promo_key,dim.promo_natural_key,dim.promo_name,dim.promo_red_Price,dim.promo_advertise,dim.promo_board,dim.promo_start_date,dim.promo_end_date)
+                            VALUES (seq_dim_promotion.NEXTVAL,clean.id,clean.name,clean.reduction,clean.on_tv,clean.on_street,clean.start_date,clean.end_date);
 
       pck_log.rowcount('t_dim_promotion','After');
       pck_log.write_log('    Done!');
@@ -70,18 +79,17 @@ CREATE OR REPLACE package body pck_load is
    -- *********************************
    -- * LOADS THE 'PRODUCT' DIMENSION *
    -- *********************************
-	PROCEDURE load_dim_product IS
+   PROCEDURE load_dim_product IS
       CURSOR products_cursor IS
          SELECT id,name,brand,pack_size,pack_type,diet_type,liq_weight,category_name
          FROM t_clean_products;
 
-      -- COUNTERS
+      -- statistic counters
       i INTEGER:=0;
       v_new_products INTEGER:=0;
       v_new_versions INTEGER:=0;
       v_old_versions INTEGER:=0;
-
-      -- VARIABLES FOR SCD CHECKING
+      -- variables for SCD checking
       v_product_key t_dim_product.product_key%TYPE;
       v_size_package t_dim_product.product_size_package%TYPE;
       v_type_package t_dim_product.product_type_package%TYPE;
@@ -90,9 +98,8 @@ CREATE OR REPLACE package body pck_load is
    BEGIN
       pck_log.write_log('  Loading data ["LOAD_DIM_PRODUCT"]');
 	  pck_log.rowcount('t_dim_product','Before');
-
       FOR rec IN products_cursor LOOP
-         -- SEARCH THE PRODUCT IN THE DIMENSION BY SELECTING SCD2 ATTRIBUTES
+         -- SEARCHES THE PRODUCT IN THE DIMENSION BY SELECTING SCD2 ATTRIBUTES
          BEGIN
             SELECT product_key, NVL(UPPER(product_size_package),-1),NVL(UPPER(product_type_package),-1),UPPER(product_diet_type),NVL(product_liquid_weight,-1)
             INTO v_product_key,v_size_package,v_type_package,v_diet_type,v_liquid_weight
@@ -100,9 +107,29 @@ CREATE OR REPLACE package body pck_load is
             WHERE product_natural_key=rec.id AND is_expired_version='NO';
 
             -- IF A RECORD WAS FOUND, THEN THE SOURCE PRODUCT IS IN FACT A NEW VERSION:
-            -- DID ANY OF THE SCD2 ATTRIBUTES CHANGE?
-            null;
+            -- I WONDER IF ANY OF THE SCD2 ATTRIBUTES HAVE CHANGED?
+            IF NVL(UPPER(rec.pack_size),-1)!=v_size_package OR
+               NVL(UPPER(rec.pack_type),-1)!=v_type_package OR
+               UPPER(rec.diet_type)!=v_diet_type OR
+               rec.liq_weight!=v_liquid_weight THEN
 
+               --  1. UPDATES THE PREVIOUS VERSION OF THE PRODUCT IN THE DIMENSION TO 'EXPIRED'
+               UPDATE t_dim_product
+               SET is_expired_version='YES'
+               WHERE product_key=v_product_key;
+
+               -- 2. INSERTS THE NEW PRODUCT'S VERSION
+               INSERT INTO t_dim_product (product_key,PRODUCT_NATURAL_KEY,PRODUCT_NAME,PRODUCT_BRAND,PRODUCT_CATEGORY,PRODUCT_SIZE_PACKAGE,PRODUCT_TYPE_PACKAGE,PRODUCT_DIET_TYPE,PRODUCT_LIQUID_WEIGHT,IS_EXPIRED_VERSION)
+               VALUES (seq_dim_product.NEXTVAL, rec.id,rec.name,rec.brand,rec.category_name,rec.pack_size,rec.pack_type,rec.diet_type,rec.liq_weight,'NO');
+               v_new_versions:=v_new_versions+1;
+            ELSE
+               -- NO SCD2 ATTRIBUTES CHANGED? THEN AT LEAST ONE SCD1 ATTRIBUTE MUST BE DIFFERENT
+               --  UPDATES THE SCD1 ATTRIBTES OF THE MOST RECENT VERSION OF THE PRODUCT
+               UPDATE t_dim_product
+               SET product_name=rec.name,product_brand=rec.brand,product_category=rec.category_name
+               WHERE product_key=v_product_key;
+               v_old_versions:=v_old_versions+1;
+            END IF;
          EXCEPTION
             WHEN NO_DATA_FOUND THEN
                -- IF NOT FOUND, THEN ITS A NEW PRODUCT
@@ -111,8 +138,7 @@ CREATE OR REPLACE package body pck_load is
                v_new_products:=v_new_products+1;
          END;
       END LOOP;
-
-	  -- RECORDS SOME STATISTICS CONCERNING LOADED PRODUCTS
+      -- RECORDS SOME STATISTICS CONCERNING LOADED PRODUCTS
       pck_log.write_log('    '||v_old_versions|| ' old product(s) updated in SCD1 attributes');
       pck_log.write_log('    '||v_new_versions|| ' old product(s) got new version(s) (old have expired)');
       pck_log.write_log('    '||v_new_products|| ' new product(s) found and loaded','    Done!');
@@ -348,10 +374,13 @@ CREATE OR REPLACE package body pck_load is
       pck_log.write_log('    '||SQL%ROWCOUNT ||' record(s) successfully loaded','    Done!');
 
       -- find today's date
-      l_today:=TO_CHAR(SYSDATE,'dd-mm-yyyy');
-      
-	  -- UPDATE THE TEMPERATURE STATUS. SOMTHING IS MISSING...
-	  null;
+      l_today:=TO_CHAR(SYSDATE,'dd/mm/yyyy');
+      -- UPDATE THE TEMPERATURE STATUS
+      UPDATE t_dim_date
+      SET date_temperature_status=(SELECT temperature_status
+                                   FROM t_clean_celsius
+                                   WHERE forecast_date=l_today)
+      WHERE date_full_date=l_today;
 
       -- RECORDS LOG
       pck_log.write_log('    '||SQL%ROWCOUNT ||' temperature row(s) updated','    Done!');
@@ -393,18 +422,49 @@ CREATE OR REPLACE package body pck_load is
    -- ************************
    -- * LOADS THE FACT TABLE *
    -- ************************
-PROCEDURE load_fact_table IS
+   PROCEDURE load_fact_table IS
       v_source_lines INTEGER;
    BEGIN
       pck_log.write_log('  Loading data ["LOAD_FACT_TABLE"]');
-      
-	  -- JUST FOR STATISTICS
+      -- JUST FOR STATISTICS
       SELECT COUNT(*)
       INTO v_source_lines
       FROM t_clean_linesofsale;
 
-      -- SOMETHING IS MISSING
-      null;
+      INSERT INTO t_fact_lineofsale (product_key,store_key,promo_key,date_key,time_key,customer_key,sold_quantity,ammount_sold,sale_id_dd)
+      SELECT
+         product_key,
+         store_key,
+         promo_key,
+         date_key,
+         time_key,
+         customer_key,
+         los.quantity,
+         los.ammount_paid,
+         los.sale_id
+      FROM
+         t_dim_product,
+         t_dim_store,
+         t_dim_promotion,
+         t_dim_date,
+         t_dim_time,
+         t_dim_customer,
+         t_clean_linesofsale los,
+         t_clean_sales sales
+      WHERE
+         -- join between the two source tables
+         sales.id=los.sale_id AND
+         -- joins to get dimension keys using sources' natural keys
+         los.product_id = t_dim_product.product_natural_key AND
+         NVL(los.promo_id,pck_error_codes.c_load_invalid_dim_record_NKey) = t_dim_promotion.promo_natural_key AND
+         sales.store_id = t_dim_store.store_natural_key AND
+         sales.customer_id = t_dim_customer.customer_natural_key AND
+         TO_CHAR(sales.sale_date,'dd/mm/yyyy') = t_dim_date.date_full_date AND
+         TO_CHAR(los.line_date,'hh24:mi:ss')=t_dim_time.time_full_time AND
+         -- excludes EXPIRED VERSIONS of product and store dimensions
+         t_dim_store.is_expired_version='NO' AND
+         t_dim_product.is_expired_version='NO' AND
+         t_dim_customer.is_expired_version='NO';
 
       pck_log.write_log('    '||SQL%ROWCOUNT ||' fact(s) loaded','    Done!');
    EXCEPTION

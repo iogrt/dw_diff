@@ -1,0 +1,65 @@
+
+CREATE OR REPLACE TRIGGER produto_bui
+BEFORE INSERT OR UPDATE ON t_produtos
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+
+CREATE OR REPLACE TRIGGER promocao_bui
+BEFORE INSERT OR UPDATE ON t_promocoes
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER venda_bui
+BEFORE INSERT OR UPDATE ON t_vendas
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER linhavenda_bui
+BEFORE INSERT OR UPDATE ON t_linhasVenda
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER vender_bui
+BEFORE INSERT OR UPDATE ON t_linhasVenda_promocoes
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER categorias_bui
+BEFORE INSERT OR UPDATE ON t_categ
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
+CREATE OR REPLACE TRIGGER clientes_bui
+BEFORE INSERT OR UPDATE ON t_clientes
+FOR EACH ROW
+BEGIN
+   :new.last_changed:=SYSDATE;
+END;
+/
+
+
